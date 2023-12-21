@@ -283,6 +283,7 @@ export class Connection {
         this.close();
         throw error;
     }
+    timeoutTimer && clearTimeout(timeoutTimer);
   }
 
 
