@@ -231,6 +231,7 @@ export class Connection {
       : null;
     let packet: ReceivePacket | null;
     try {
+      this._timedOut = false;
       packet = await new ReceivePacket().parse(this.conn!);
     } catch (error) {
       if (this._timedOut) {
@@ -270,6 +271,7 @@ export class Connection {
       : null;
     
     try {
+      this._timedOut = false;
       await new SendPacket(data,no).send(this.conn);
     } 
     catch (error) {
