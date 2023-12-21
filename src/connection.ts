@@ -108,9 +108,7 @@ export class Connection {
           const tlsData = buildSSLRequest(handshakePacket, {
             db: this.config.db,
           });
-          await new SendPacket(tlsData, ++handshakeSequenceNumber).send(
-            this.conn,
-          );
+          await this.sendPacket(tlsData, ++handshakeSequenceNumber);
           this.conn = await Deno.startTls(this.conn, {
             hostname,
             caCerts: this.config.tls?.caCerts,
@@ -126,7 +124,7 @@ export class Connection {
         ssl: isSSL,
       });
 
-      await new SendPacket(data, ++handshakeSequenceNumber).send(this.conn);
+      await this.sendPacket(data, ++handshakeSequenceNumber);
 
       this.state = ConnectionState.CONNECTING;
       this.serverVersion = handshakePacket.serverVersion;
@@ -165,7 +163,7 @@ export class Connection {
             authData = Uint8Array.from([]);
           }
 
-          await new SendPacket(authData, receive.header.no + 1).send(this.conn);
+          await this.sendPacket(authData, receive.header.no + 1);
 
           receive = await this.nextPacket();
           const authSwitch2 = parseAuthSwitch(receive.body);
@@ -182,7 +180,7 @@ export class Connection {
         while (!result.done) {
           if (result.data) {
             const sequenceNumber = receive.header.no + 1;
-            await new SendPacket(result.data, sequenceNumber).send(this.conn);
+            await this.sendPacket(result.data, sequenceNumber); 
             receive = await this.nextPacket();
           }
           if (result.quickRead) {
@@ -259,6 +257,33 @@ export class Connection {
     return packet!;
   }
 
+
+  private async sendPacket(data:Uint8Array,no:number):Promise<void>{
+    if (!this.conn) {
+      throw new ConnnectionError("Not connected");
+    }
+    const timeoutTimer = this.config.timeout
+      ? setTimeout(
+        this._timeoutCallback,
+        this.config.timeout,
+      )
+      : null;
+    
+    try {
+      await new SendPacket(data,no).send(this.conn);
+    } 
+    catch (error) {
+        if (this._timedOut) {
+          // Connection has been closed by timeoutCallback.
+          throw new ResponseTimeoutError("Connection write timed out");
+        }
+        timeoutTimer && clearTimeout(timeoutTimer);
+        this.close();
+        throw error;
+    }
+  }
+
+
   private _timeoutCallback = () => {
     log.info("connection read timed out");
     this._timedOut = true;
@@ -308,7 +333,8 @@ export class Connection {
     }
     const data = buildQuery(sql, params);
     try {
-      await new SendPacket(data, 0).send(this.conn!);
+
+      await this.sendPacket(data,0); 
       let receive = await this.nextPacket();
       if (receive.type === PacketType.OK_Packet) {
         receive.body.skip(1);
